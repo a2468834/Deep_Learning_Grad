@@ -23,15 +23,18 @@ import time
 
 # Define some constants
 class CONST:
-    row_num = lambda : 28
-    col_num = lambda : 28
+    row_num       = lambda : 28
+    col_num       = lambda : 28
+    nn_input_dim  = lambda : 784 # 28*28
+    nn_output_dim = lambda : 10
 
 
 # Define some basic functions
 class FUNC:
-    Sigmoid = lambda x : 1/(1+numpy.exp(-x))
-    ReLU    = lambda x : x if x > 0 else 0
-    Softmax = lambda x : numpy.exp(x) / numpy.sum(numpy.exp(x))
+    Sigmoid  = lambda x : 1/(1+numpy.exp(-x))
+    ReLU     = lambda x : x if x > 0 else 0
+    Softmax  = lambda x : numpy.exp(x) / numpy.sum(numpy.exp(x))
+    UnitStep = lambda x : 1 if x >= 0 else 0                      # Derivative of ReLU w.r.t. 'x'
 
 
 def loadData(image_file_path, label_file_path):
@@ -100,6 +103,7 @@ if __name__ == "__main__":
     pyplot.show()
     '''
     
+    '''
     # Print data into gray images
     for i in range(0, 10):
         r = random.randint(0, 10000-1)
@@ -107,3 +111,11 @@ if __name__ == "__main__":
         pyplot.imshow(test_x_part[r, :].reshape(28, 28), cmap=pyplot.cm.gray)
         pyplot.title("%s"%(test_y_part[r]))
         pyplot.show()
+    '''
+    for i in numpy.arange(-5, 5, 0.1):
+        print("%f   %f"%(i, FUNC.UnitStep(i)))
+
+
+
+# The # of nodes in the input layer is determined by the dimensionality of training data. => input layer 784 neurons
+# The # of nodes in the output layer is determined by the number of classes we have. => 10 classes 10 neurons 
