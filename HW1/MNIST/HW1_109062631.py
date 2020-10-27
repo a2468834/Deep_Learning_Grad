@@ -25,21 +25,36 @@ import time
 class CONST:
     row_num    = lambda : 28
     col_num    = lambda : 28
-    input_dim  = lambda : CONST.row_num()*CONST.col_num()
+    input_dim  = lambda : CONST.row_num() * CONST.col_num()
     output_dim = lambda : 10
+    batch_size = lambda : 4096
 
 
 # Define some basic functions
 class FUNC:
     Sigmoid  = lambda x : 1/(1+numpy.exp(-x))
     Softmax  = lambda x : numpy.exp(x) / numpy.sum(numpy.exp(x), axis=0) # Apply softmax column-wisely
-    UnitStep = lambda x : 1 if x >= 0 else 0                             # Derivative of ReLU w.r.t. 'x'
+    UnitStep = lambda x : 1 if x >= 0 else 0                             # 1st Derivative of ReLU w.r.t. 'x'
     ReLU     = lambda x : x * (x > 0)
-    Trans    = lambda x : x.transpose()                                  # Please note that 'x' must be a numpy-array
+    
+    # Please note that 'x' must be a numpy-array
+    def Trans(x):
+        if not isinstance(x, numpy.ndarray):
+            print("Type error to input parameter while using FUNC.Trans()")
+            exit()
+        else:
+            return x.transpose()
+    
+    def CrossEntropy(predict_prob_vector, truth_class):
+        return (-1.0) * numpy.log( predict_prob_vector[truth_class] )
 
 
 def loadData(image_file_path, label_file_path):
-    return readImageLabel(image_file_path, "image"), readImageLabel(label_file_path, "label")
+    x_part = readImageLabel(image_file_path, "image")
+    y_part = readImageLabel(label_file_path, "label")
+    
+    # Transpose 'x_part' s.t. every COLUMN (NOT row) is a training/testing instance.
+    return FUNC.Trans(x_part), y_part
 
 
 def readImageLabel(file_path, file_type):
@@ -62,33 +77,56 @@ def readImageLabel(file_path, file_type):
     return result
 
 
+# Return a list of batches [batch_0, batch_1, batch_2,...], where batch_i = (x_part, y_part)
+def makeDataBatches(batch_size, train_x_part, train_y_part):
+    index_list, start = [], 0
+    
+    while True:
+        if (start+batch_size) > train_x_part.shape[1]:
+            break
+        index_list.append( (start, start+batch_size) )
+        start += batch_size
+    index_list.append( (start, train_x_part.shape[1]) )
+    
+    return [(train_x_part[:, index[0]:index[1]], train_y_part[index[0]:index[1]]) for index in index_list]
+
+
 # 'network_struct' tells us that the # of nodes at each layer, e.g., [input_dim, 1st_hd_layer, ..., output_dim]
 def trainModel(network_struct, num_epochs, train_x_part, train_y_part):
     # 'W' : list of weight matrices, which represents each layer's W. Note that W[0] is W1.
     # 'b' : list of bias vectors, which represents each layer's b. Note that b[0] is b1.
     # 'model' : return value which is a dict with all of 'W' and 'b'.
-    W, b = [], []
-    model = {}
+    W, b, model = [], [], {}
     numpy.random.seed()
     
     # STEP1: Initialize parameters within all weight matrices 'W' and bias vectors 'b'.
-    # input layer -> 1st hidden layer, hidden layer -> hidden layer, and hidden layer -> output layer
+    # input layer to 1st hidden layer, hidden layer to hidden layer, and hidden layer to output layer
     for i in range(len(network_struct)-1):
         W.append( numpy.random.randn(network_struct[i], network_struct[i+1]) / numpy.sqrt(network_struct[0]) ) # Skill from ch03 slide P.42
-        b.append( numpy.zeros((network_struct[i+1], 1)) )
+        #b.append( numpy.zeros((network_struct[i+1], 1)) )
     
-    # STEP2: Gradient descent
-    for epoch in range(0, num_epochs):
-        # STEP2.1: Forward propagation
-        h = [FUNC.ReLU( (FUNC.Trans(W[0])).dot(train_x_part) + b[0] )] # Column-wise addition
-        for layer_i in range(1, len(network_struct)-1):
-            if (layer_i) < (len(network_struct)-2):
-                h.append(FUNC.ReLU( (FUNC.Trans(W[layer_i])).dot(h[layer_i-1]) + b[layer_i] ))
-            # Output layer using softmax activation function
-            else:
-                h.append(FUNC.Softmax( (FUNC.Trans(W[layer_i])).dot(h[layer_i-1]) + b[layer_i] ))
-        
-        #STEP2.2: Backward propagation
+    # STEP2: Gradient descent, batch size = 2^12 = 4096
+    train_batch = makeDataBatches(CONST.batch_size(), train_x_part, train_y_part)
+    
+    for epoch in range(num_epochs):
+        for each_batch in train_batch:
+            # STEP2.1: Forward propagation
+            h = []
+            for layer_i in range(len(network_struct)-1):
+                # 1st hidden layer
+                if layer_i == 0:
+                    h.append(FUNC.ReLU( (FUNC.Trans(W[0])).dot(each_batch[0]) )) # Column-wise addition
+                # 2nd ~ last hidden layers
+                elif layer_i in list(range(1, len(network_struct)-2)):
+                    h.append(FUNC.ReLU( (FUNC.Trans(W[layer_i])).dot(h[layer_i-1]) ))
+                # Output layer using softmax activation function
+                else:
+                    h.append(FUNC.Softmax( (FUNC.Trans(W[layer_i])).dot(h[layer_i-1]) ))
+            
+            # STEP2.2: Calculate aggregate loss value at this batch
+            batch_loss = sum([FUNC.CrossEntropy(h[-1][:, index], each_batch[1][index]) for index in range(each_batch[1].shape[0])])
+            
+            # STEP2.3: Backward propagation
         
     return model
 
@@ -104,10 +142,6 @@ if __name__ == "__main__":
     # Load data from files
     train_x_part, train_y_part = loadData(train_image_file_path, train_label_file_path)
     test_x_part, test_y_part = loadData(test_image_file_path, test_label_file_path)
-    
-    # Transpose matrices so that every COLUMN (NOT row) in x_part is a training/testing instance.
-    train_x_part = FUNC.Trans(train_x_part)
-    test_x_part  = FUNC.Trans(test_x_part)
     
     # Shuffle data
     shuffle = numpy.random.permutation(train_x_part.shape[1])
@@ -150,10 +184,11 @@ if __name__ == "__main__":
     '''
     
     network_struct = [CONST.row_num()*CONST.col_num(), 100, 100, CONST.output_dim()]
-    trainModel(network_struct, 20000, train_x_part, train_y_part)
-    
-        
+    trainModel(network_struct, 20000, train_x_part_P70, train_y_part_P70)
 
 
 # The # of nodes in the input layer is determined by the dimensionality of training data. => input layer 784 neurons
 # The # of nodes in the output layer is determined by the number of classes we have. => 10 classes 10 neurons 
+# Textbook P.139 : forward & backward function
+# train_x_part : (28*28, 60000) i.e., (784, 60000)
+# train_y_part : (60000,)       i.e., (60000, 1)
