@@ -30,6 +30,7 @@ class CONST:
     input_dim  = lambda : CONST.row_num() * CONST.col_num()
     output_dim = lambda : 10
     batch_size = lambda : 4096                              # batch size = 2^12
+    v_t_ratio  = lambda : 0.3                               # validation_training_ration
 
 
 # Define some basic functions
@@ -105,7 +106,7 @@ def readImageLabel(file_path, file_type):
     return result
 
 
-# Return a list of batches [batch_0, batch_1, batch_2,...], where batch_i = {'x': x_part_numpy, 'y': y_part_numpy}
+# Return a list of batches [batch_0, batch_1, batch_2,...], where batch_i = (x_part_numpy, y_part_numpy)
 def makeDataBatches(batch_size, data_x_part, data_y_part):
     index_list, start = [], 0
     
@@ -116,7 +117,7 @@ def makeDataBatches(batch_size, data_x_part, data_y_part):
         start += batch_size
     index_list.append( (start, data_x_part.shape[1]) )
     
-    return [{'x': data_x_part[:, index[0]:index[1]], 'y': data_y_part[:, index[0]:index[1]]} for index in index_list]
+    return [(data_x_part[:, index[0]:index[1]], data_y_part[:, index[0]:index[1]]) for index in index_list]
     
 
 def oneHotVector(y_part):
@@ -156,9 +157,8 @@ def trainModel(num_epochs, model, train_x_part, train_y_part):
                 # STEP2.2: Calculate aggregate loss value at this batch
                 instance_loss = FUNC.crossEntropy(h[-1]['post_act'], each_batch['y'][:, instance_index])
                 
-                # STEP2.3: Backward propagation
-                update_delta = backwardPropagate(model=model, FP_intermediates=h, truth_y=each_batch['y'][:, instance_index], loss=instance_loss)
-                '''
+                # STEP2.3: Backward propagation &
+                updateWeightsMiniBatch()
                 propa_layer       = len(model.network_struct)-1
                 back_propa_vector = h[-1] - each_batch['y'] # Derivative of softmax see P.138
                 
@@ -173,7 +173,7 @@ def trainModel(num_epochs, model, train_x_part, train_y_part):
                     
                     back_propa_vector = model.W[propa_layer-1].dot(back_propa_vector)
                     propa_layer = propa_layer - 1
-                '''
+                
         #print(epoch)
         #exit()
     
@@ -183,7 +183,8 @@ def trainModel(num_epochs, model, train_x_part, train_y_part):
 def forwardPropagate(model, data_x_part):
     # 'h' is a list of dicts which stores intermediate values (i.e., pre_activation_value and
     #  post_activation_value) at hidden layers and output layer.
-    h = [{'pre_act': data_x_part, 'post_act': data_x_part}]
+    # NOTE: h[0]['post_act'] = input data x part
+    h = [{'pre_act': None, 'post_act': data_x_part.reshape(-1, 1)}]
     
     for layer_index in range(len(model.network_struct)-1):
         if layer_index in list(range(len(model.network_struct)-2)): # hidden layer
@@ -194,27 +195,41 @@ def forwardPropagate(model, data_x_part):
             pre_act  = calcPreActive(model.W[layer_index], h[-1]['post_act'])
             post_act = actFunc(pre_act, "output") # The activation function is softmax, not cross-entropy
             h.append({'pre_act': pre_act, 'post_act': post_act})
-    del h[0] # Input data is not included in intermediate value list.
     return h
 
 
-def backwardPropagate(model, FP_intermediates, truth_y, loss):
-    dL_dW, gradients = [], [None]*len(model.W)
+# Return 'nabla_W'
+# 'nabla_W' is a layer-by-layer python-list of numpy arrays, similar to 'model.W'
+def backwardPropagate(model, FP_intermediates, truth_y):
+    nabla_W = [numpy.zeros(each_W.shape) for each_W in model.W] # Initialization
     
-    for layer_index in reversed(range(len(model.network_struct)-1)):
-        in_vector  = FP_intermediates[layer_index-1]['post_act']
-        out_vector = FP_intermediates[layer_index]['post_act']
-        
-        if layer_index == len(model.network_struct)-2: # Output layer
-            temp_delta = deActFunc(layer_type="output", out_vector=out_vector, truth_y=truth_y)
-            in_vector  = in_vector.reshape(-1, 1)
-        else: # Other hidden layers
-            temp_delta = deActFunc(layer_type="hidden", in_vector=in_vector, out_vector=out_vector)
-        
-        temp_delta = (in_vector).dot(temp_delta.T)
-        delta_weight_list.insert(len(delta_weight_list), temp_delta)
-        prev_gradient = model.W[layer_index-1]
-    return dL_dW
+    # BP for output layer
+    delta_temp = deActFunc("output", predict_y=FP_intermediates[-1]['post_act'], truth_y=truth_y.reshape(-1, 1)) # ${\delta}^{L}$
+    nabla_W[-1] = FP_intermediates[-2]['post_act'].dot(delta_temp.T) # $a^{L-1} {\delta}^{L}$
+    
+    # BP for hidden layers
+    for layer_index in reversed(range(len(model.network_struct)-2)):
+        # z^{l}   = FP_intermediates[layer_index+1]['pre_act']
+        # w^{l+1} = model.W[layer_index+1]
+        # a^{l-1} = FP_intermediates[layer_index]['post_act']
+        sigma_prime = deActFunc("hidden", z_vector=FP_intermediates[layer_index+1]['pre_act'])
+        delta_temp = (model.W[layer_index+1]).dot(delta_temp) * sigma_prime
+        nabla_W[layer_index] = FP_intermediates[layer_index]['post_act'].dot(delta_temp.T)
+    
+    return nabla_W
+
+
+# Update NN's weights by applying gradient descent using backward propagation to a single mini-batch.
+def updateWeightsMiniBatch(model, FP_intermediates, mini_batch_list):
+    batches_num   = len(mini_batch_list)
+    total_nabla_W = [numpy.zeros(each_W.shape) for each_W in model.W]
+    
+    # FP_intermediates 和 one_instance_x 是一一對應，不同的 one_instance_x 有不同的 FP_intermediates
+    for one_instance_x, one_instance_y in mini_batch_list:
+        one_instance_nabla_W = backwardPropagate(model, FP_intermediates, one_instance_y)
+        total_nabla_W = addTwoListOfNumpy(total_nabla_W, one_instance_nabla_W)
+    
+    model.W = [W - (model.learning_rate / batches_num) * n_W for W, n_W in zip(model.W, total_nabla_W)]
 
 
 def actFunc(pre_activation_value, layer_type):
@@ -229,9 +244,25 @@ def actFunc(pre_activation_value, layer_type):
     return post_activation_value
 
 
+def deActFunc(layer_type, z_vector=None, predict_y=None, truth_y=None):
+    if layer_type not in ["hidden", "output"]:
+        print("Error type of layer in neural network: %s"%layer_type)
+        exit()
+    else:
+        if layer_type == "hidden":
+            return FUNC.unitStep(z_vector)
+        else: # layer_type == "output"
+            if predict_y.shape != truth_y.shape:
+                print("Error: Calaculate derivative of output layer must use 'truth_y' with dim=(-1, 1).")
+                exit()
+            else:
+                return (predict_y - truth_y).reshape(-1, 1) # The derivative of function which is combined softmax and C-E loss
+
+
 def calcPreActive(weight, data_x_part):
-    pre_activation_value = (weight.T).dot(data_x_part)
-    return pre_activation_value
+    pre_act_value = (weight.T).dot(data_x_part)
+    if len(pre_act_value.shape)==1: pre_act_value = pre_act_value.reshape(-1, 1)
+    return pre_act_value
 
 
 def inference(model, data_x_part):
@@ -244,26 +275,15 @@ def evaluation(predict_y, truth_y):
     truth_label = numpy.argmax(truth_y, axis=0)
     return True if predict_label == truth_label else False
 
-'''
-def actFunc(pre_activation_value, layer_type):
-    if layer_type not in ["hidden", "output"]:
-        print("Error type of layer in neural network: %s"%layer_type)
-        exit()
-    else: # Column-wisely applying activation function on pre_activation_value
-        post_activation_value = expit(pre_activation_value)
-    return post_activation_value
-'''
 
-def deActFunc(layer_type, in_vector=None, out_vector=None, truth_y=None):
-    if layer_type not in ["hidden", "output"]:
-        print("Error type of layer in neural network: %s"%layer_type)
-        exit()
+def addTwoListOfNumpy(list_of_numpy1, list_of_numpy2):
+    result = []
+    if len(list_of_numpy1) == len(list_of_numpy2):
+        result = [np_array1 + np_array2 for np_array1, np_array2 in zip(list_of_numpy1, list_of_numpy2)]
     else:
-        if layer_type == "hidden":
-            return FUNC.unitStep()
-        else: # layer_type == "output"
-            return (out_vector - truth_y).reshape(-1, 1) # derivatives combined softmax and C-E loss
-
+        print("Try to add two different length list.")
+        exit()
+    return result
 
 
 def avoidZeroValue(numpy_vector):
@@ -308,7 +328,7 @@ if __name__ == "__main__":
     
     print("Generate training set & validation set.")
     # Splitting TRAINING data into validation set (30%) and training set (70%)
-    valid_num        = int(train_x_part.shape[1] * 0.3)
+    valid_num        = int(train_x_part.shape[1] * CONST.v_t_ratio())
     train_x_part_P30 = train_x_part[:, :valid_num]
     train_x_part_P70 = train_x_part[:, valid_num:]
     train_y_part_P30 = train_y_part[:, :valid_num]
@@ -340,9 +360,14 @@ if __name__ == "__main__":
     
     net_struct = [CONST.row_num()*CONST.col_num(), 100, 100, CONST.output_dim()]
     HW1_NN     = MODEL(network_struct=net_struct, learning_rate=0.1)
-    HW1_NN     = trainModel(20000, HW1_NN, train_x_part_P70, train_y_part_P70)    
+    HW1_NN     = trainModel(20000, HW1_NN, train_x_part_P70, train_y_part_P70)
+    
     print("Total Exe. Seconds: %.2f"%(time.time()-start_time))
+    
 
 # The # of nodes in the input layer is determined by the dimensionality of training data. => input layer 784 neurons
 # The # of nodes in the output layer is determined by the number of classes we have. => 10 classes 10 neurons 
 # Textbook P.139 : forward & backward function
+# `np_ay_1.dot(np_ay_2)` is equivalent to `numpy.dot(np_ay_1, np_ay_2)`
+#activations[layer_xx] i.e., FP_intermediates[layer_xx]['post_act']
+#zs[layer_xx] i.e., FP_intermediates[layer_xx]['pre_act']
