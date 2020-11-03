@@ -1,6 +1,6 @@
 #   Homework 1: Neural Networks
 #    
-#   Date:        2020/10/14
+#   Date:        2020/10/16
 #   CourseID:    10910COM526000
 #   Course:      Deep Learning (Graduated)
 #   
@@ -21,7 +21,6 @@ import struct
 import sys
 import time
 import warnings
-import logging
 
 
 # Define some constants
@@ -30,13 +29,12 @@ class CONST:
     col_num    = lambda : 28                                # width of a image in pixels
     input_dim  = lambda : CONST.row_num() * CONST.col_num()
     output_dim = lambda : 10
-    batch_size = lambda : 4096                              # batch size = 2^12
+    batch_size = lambda : 32                                # batch size = 2^5
     v_t_ratio  = lambda : 0.3                               # validation_training_ration
 
 
 # Define some basic functions
 class FUNC:
-    #sigmoid  = lambda x : 1/(1+numpy.exp(-x))
     unitStep = lambda x : (x > 0.0).astype(numpy.int)                    # 1st Derivative of reLU w.r.t. 'x'
     reLU     = lambda x : x * (x > 0.0)
     
@@ -149,46 +147,63 @@ def oneHotVector(y_part):
     return result
 
 
-def trainModel(num_epochs, model, train_x_part, train_y_part):
+def trainModel(num_epochs, model, train_x_part, train_y_part, valid_x_part, valid_y_part):
     # STEP1: Split training data into many mini-batches
     batch_list = makeDataBatches(CONST.batch_size(), train_x_part, train_y_part)
+    printEpochAndLoss(model, valid_x_part, valid_y_part, 0.1)
     
     # STEP2: Mini-batch gradient descent
     for epoch in range(num_epochs):
         avg_ce_loss, error_num = 0.0, 0
         n = train_x_part.shape[1]
-        #ins_index = -1
+        
+        # Process every batch
         for one_batch in batch_list:
-            # STEP2.1: Process one batch
             accum_nabla_W = [numpy.zeros(each_W_matrix.shape) for each_W_matrix in model.W] # Initialization ${\nebla}W$
             
             for each_instance_x_part, each_instance_y_part in one_batch:
-                #ins_index += 1
-                # STEP2.1.1: Forward propagation
+                # Forward propagation
                 h = forwardPropagate(model, each_instance_x_part)
-                
-                # STEP2.1.2: Calculate average C-E loss (incremental averageing)
-                #print(ins_index)
+                '''
+                # Calculate average C-E loss (using incremental averageing)
                 ce_loss = FUNC.crossEntropy(h[-1]['post_act'], each_instance_y_part)
                 avg_ce_loss = avg_ce_loss + (ce_loss - avg_ce_loss) / n
-                if isEqual(h[-1]['post_act'], each_instance_y_part) == True:
-                    error_num = error_num
-                else:
-                    error_num+=1
-                
-                # STEP2.1.3: Backward propagation
+                '''
+                # Backward propagation
                 one_instance_nabla_W = backwardPropagate(model, h, each_instance_y_part)
                 
-                # STEP2.1.4: Accumulate the ${\nebla}W$
+                # Accumulate the ${\nebla}W$
                 accum_nabla_W = addTwoListOfNumpy(accum_nabla_W, one_instance_nabla_W)
-                
-            # STEP2.2: Update model weights at a single time
-            for i in range(len(model.W)):
-                model.W[i] = model.W[i] - (model.learning_rate * accum_nabla_W[i])
-                #model.W[i] = model.W[i] - (model.learning_rate / len(one_batch)) * accum_nabla_W[i]
-        print("Epoch=%d, Average loss=%.4f, Total # of errors=%d"%(epoch, avg_ce_loss, error_num))
+            
+            # Update model weights at a single time
+            model.W = updateModelWeight("mini-batch", model, accum_nabla_W, len(one_batch))
         
+        # Calculate average C-E loss on validation set
+        printEpochAndLoss(model, valid_x_part, valid_y_part, epoch+1)
+    
+    # STEP3: Train the model with whole data at the last time
+    whole_x_part = numpy.concatenate((train_x_part, valid_x_part),axis=1)
+    whole_y_part = numpy.concatenate((train_y_part, valid_y_part),axis=1)
+    for i in range(whole_x_part.shape[1]):
+        h            = forwardPropagate(model, whole_x_part[:, i].reshape(-1, 1))
+        temp_nabla_W = backwardPropagate(model, h, whole_y_part[:, i].reshape(-1, 1))
+        model.W      = updateModelWeight("whole", model, temp_nabla_W)
+    
     return model
+
+
+def updateModelWeight(update_method, model, nabla_W, batch_size=0):
+    if update_method not in ["mini-batch", "whole"]:
+        print("Error type of updating method: %s"%update_method)
+        exit()
+    else:
+        if update_method == "mini-batch":
+            for i in range(len(model.W)):
+                model.W[i] = model.W[i] - (model.learning_rate / batch_size) * nabla_W[i]
+        else: # update_method == "whole"
+            for i in range(len(model.W)):
+                model.W[i] = model.W[i] - (model.learning_rate * nabla_W[i])
+    return model.W
 
 
 def forwardPropagate(model, data_x_part):
@@ -281,7 +296,7 @@ def inference(model, data_x_part):
     return predict_y
 
 
-def isEqual(predict_y, truth_y):
+def isNotEqual(predict_y, truth_y):
     predict_label = numpy.argmax(predict_y, axis=0)
     truth_label = numpy.argmax(truth_y, axis=0)
     if predict_label == truth_label:
@@ -303,6 +318,14 @@ def addTwoListOfNumpy(list_of_numpy1, list_of_numpy2):
 def avoidZeroValue(numpy_vector):
     # Add 0.01 to all elements of numpy.ndarray to avoid zeros which caused gradient vanishing
     return numpy_vector + 0.0001
+
+
+def printEpochAndLoss(model, data_x_part, data_y_part, epoch):
+    ce_loss = 0.0
+    predict_y_s = inference(model, data_x_part)
+    for i in range(predict_y_s.shape[1]):
+        ce_loss += FUNC.crossEntropy(predict_y_s[:, i], data_y_part[:, i])
+    print("Epoch=%d, Total loss=%.2f"%(int(epoch), ce_loss/predict_y_s.shape[1]/epoch))
 
 
 def printImage(data_x_part, data_y_part):
@@ -331,7 +354,6 @@ if __name__ == "__main__":
     train_x_part, train_y_part = loadData(train_image_file_path, train_label_file_path)
     test_x_part, test_y_part   = loadData(test_image_file_path, test_label_file_path)
     
-    '''
     print("Shuffle data.")
     # Shuffle data
     shuffle      = numpy.random.permutation(train_x_part.shape[1])
@@ -340,7 +362,6 @@ if __name__ == "__main__":
     shuffle      = numpy.random.permutation(test_x_part.shape[1])
     test_x_part  = test_x_part[:, shuffle]
     test_y_part  = test_y_part[:, shuffle]
-    '''
     
     print("Generate training set & validation set.")
     # Splitting TRAINING data into validation set (30%) and training set (70%)
@@ -374,17 +395,24 @@ if __name__ == "__main__":
         pyplot.show()
     '''
     
-    net_struct = [CONST.row_num()*CONST.col_num(), 30, 30, CONST.output_dim()]
-    HW1_NN     = MODEL(network_struct=net_struct, learning_rate=0.1)
-    HW1_NN     = trainModel(10, HW1_NN, train_x_part, train_y_part)
-    predict_ys = inference(HW1_NN, test_x_part)
+    nn_struct = [CONST.row_num()*CONST.col_num(), 100, 100, CONST.output_dim()]
+    HW1_NN    = MODEL(network_struct=nn_struct, learning_rate=0.1)
+    
+    print("Start training a model.\n")
+    HW1_NN = trainModel(10, HW1_NN, train_x_part_P70, train_y_part_P70, train_x_part_P30, train_y_part_P30)
+    print("\nEnd training.")
+    
+    print("\nPredict testing data set.\n")
+    predictions = inference(HW1_NN, test_x_part)
+    
+    print("[Result]")
     temp = 0
-    for i in range(predict_ys.shape[1]):
-        temp = temp if isEqual(predict_ys[:, i], test_y_part[:, i]) else (temp+1)
-    print(temp/predict_ys.shape[1])
-    #printImage(train_x_part[:, 4096], train_y_part[:, 4096])
-    #aa = forwardPropagate(HW1_NN, train_x_part[:, 4095])[-1]['post_act']
-    #bb = FUNC.crossEntropy(aa, train_y_part[:, 4095])
+    for i in range(predictions.shape[1]):
+        if isNotEqual(predictions[:, i], test_y_part[:, i]):
+            temp = temp + 1
+        else:
+            temp = temp
+    print("Accuracy on test data: %.4f%%"%((1.0-temp/predictions.shape[1])*100.0))
     print("Total Exe. Seconds: %.2f"%(time.time()-start_time))
     
 
