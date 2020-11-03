@@ -21,6 +21,7 @@ import struct
 import sys
 import time
 import warnings
+import logging
 
 
 # Define some constants
@@ -39,9 +40,13 @@ class FUNC:
     unitStep = lambda x : (x > 0.0).astype(numpy.int)                    # 1st Derivative of reLU w.r.t. 'x'
     reLU     = lambda x : x * (x > 0.0)
     
+    #C-E Loss = $-\sum{\mathrm{label}_i{\ }log_{e}(\mathrm{predict}_i)}$, where $i{\in}$ vector's index set
     def crossEntropy(predict_vector, truth_vector):
-        #C-E Loss = $-\sum{\mathrm{label}_i{\ }log_{e}(\mathrm{predict}_i)}$, where $i{\in}$ vector's index set
-        return sum((-1.0) * truth_vector * numpy.log(predict_vector)) # element-wise multiplication
+        reshape_predict_v, truth_label = predict_vector.reshape(-1), numpy.argmax(truth_vector, axis=0)
+        if reshape_predict_v[truth_label] == 0.0:
+            return (-1.0) * numpy.log(0.0001)
+        else:
+            return (-1.0) * numpy.log(reshape_predict_v[truth_label])
     
     def binaryIndicator(vector, relation, comp_value):
         if relation not in [">", "<", "="]:
@@ -138,8 +143,8 @@ def oneHotVector(y_part):
             result = numpy.append(result, one_hot_label, axis=1)
     
     # Avoid zeroes and ones which may cause gradient vanishing/exploding
-    #result[result==0.0] = 0.001
-    #result[result==1.0] = 0.999
+    result[result==0.0] = 0.001
+    result[result==1.0] = 0.999
     
     return result
 
@@ -150,27 +155,39 @@ def trainModel(num_epochs, model, train_x_part, train_y_part):
     
     # STEP2: Mini-batch gradient descent
     for epoch in range(num_epochs):
+        avg_ce_loss, error_num = 0.0, 0
+        n = train_x_part.shape[1]
+        #ins_index = -1
         for one_batch in batch_list:
             # STEP2.1: Process one batch
             accum_nabla_W = [numpy.zeros(each_W_matrix.shape) for each_W_matrix in model.W] # Initialization ${\nebla}W$
             
             for each_instance_x_part, each_instance_y_part in one_batch:
+                #ins_index += 1
                 # STEP2.1.1: Forward propagation
                 h = forwardPropagate(model, each_instance_x_part)
                 
-                # STEP2.1.2: Calculate aggregate loss value
-                instance_loss = FUNC.crossEntropy(h[-1]['post_act'], each_instance_y_part)
-                                
+                # STEP2.1.2: Calculate average C-E loss (incremental averageing)
+                #print(ins_index)
+                ce_loss = FUNC.crossEntropy(h[-1]['post_act'], each_instance_y_part)
+                avg_ce_loss = avg_ce_loss + (ce_loss - avg_ce_loss) / n
+                if isEqual(h[-1]['post_act'], each_instance_y_part) == True:
+                    error_num = error_num
+                else:
+                    error_num+=1
+                
                 # STEP2.1.3: Backward propagation
                 one_instance_nabla_W = backwardPropagate(model, h, each_instance_y_part)
                 
                 # STEP2.1.4: Accumulate the ${\nebla}W$
                 accum_nabla_W = addTwoListOfNumpy(accum_nabla_W, one_instance_nabla_W)
-            
+                
             # STEP2.2: Update model weights at a single time
-            for i in len(model.W):
-                model.W[i] = model.W[i] - (model.learning_rate * total_nabla_W[i])            
-                #model.W[i] = model.W[i] - (model.learning_rate / len(one_batch)) * total_nabla_W[i]    
+            for i in range(len(model.W)):
+                model.W[i] = model.W[i] - (model.learning_rate * accum_nabla_W[i])
+                #model.W[i] = model.W[i] - (model.learning_rate / len(one_batch)) * accum_nabla_W[i]
+        print("Epoch=%d, Average loss=%.4f, Total # of errors=%d"%(epoch, avg_ce_loss, error_num))
+        
     return model
 
 
@@ -250,9 +267,7 @@ def deActFunc(layer_type, z_vector=None, predict_y=None, truth_y=None):
                 print("Error: Calaculate derivative of output layer must use 'truth_y' with dim=(-1, 1).")
                 exit()
             else:
-                print(predict_y.shape)
-                print(truth_y.shape)
-                return (predict_y - truth_y).reshape(-1, 1) # The derivative of function which is combined softmax and C-E loss
+                return predict_y - truth_y # The derivative of function which is combined softmax and C-E loss
 
 
 def calcPreActive(weight, data_x_part):
@@ -262,14 +277,17 @@ def calcPreActive(weight, data_x_part):
 
 
 def inference(model, data_x_part):
-    one_hot_prediction = forwardPropagate(model, data_x_part)[-1]
-    return numpy.argmax(one_hot_prediction, axis=0)
+    predict_y = forwardPropagate(model, data_x_part)[-1]['post_act']
+    return predict_y
 
 
-def evaluation(predict_y, truth_y):
+def isEqual(predict_y, truth_y):
     predict_label = numpy.argmax(predict_y, axis=0)
     truth_label = numpy.argmax(truth_y, axis=0)
-    return True if predict_label == truth_label else False
+    if predict_label == truth_label:
+        return True
+    else:
+        return False
 
 
 def addTwoListOfNumpy(list_of_numpy1, list_of_numpy2):
@@ -284,7 +302,7 @@ def addTwoListOfNumpy(list_of_numpy1, list_of_numpy2):
 
 def avoidZeroValue(numpy_vector):
     # Add 0.01 to all elements of numpy.ndarray to avoid zeros which caused gradient vanishing
-    return numpy_vector + 0.01
+    return numpy_vector + 0.0001
 
 
 def printImage(data_x_part, data_y_part):
@@ -297,8 +315,8 @@ def printImage(data_x_part, data_y_part):
 # train_x_part : (28*28, 60000) i.e., (784, 60000)
 # train_y_part : (10, 60000)
 if __name__ == "__main__":
+    warnings.simplefilter("always")
     start_time = time.time()
-    warnings.simplefilter("ignore")
     
     print("Open source files.")
     # Prepare absolute paths of input files
@@ -313,6 +331,7 @@ if __name__ == "__main__":
     train_x_part, train_y_part = loadData(train_image_file_path, train_label_file_path)
     test_x_part, test_y_part   = loadData(test_image_file_path, test_label_file_path)
     
+    '''
     print("Shuffle data.")
     # Shuffle data
     shuffle      = numpy.random.permutation(train_x_part.shape[1])
@@ -321,6 +340,7 @@ if __name__ == "__main__":
     shuffle      = numpy.random.permutation(test_x_part.shape[1])
     test_x_part  = test_x_part[:, shuffle]
     test_y_part  = test_y_part[:, shuffle]
+    '''
     
     print("Generate training set & validation set.")
     # Splitting TRAINING data into validation set (30%) and training set (70%)
@@ -354,9 +374,17 @@ if __name__ == "__main__":
         pyplot.show()
     '''
     
-    net_struct = [CONST.row_num()*CONST.col_num(), 100, 100, CONST.output_dim()]
+    net_struct = [CONST.row_num()*CONST.col_num(), 30, 30, CONST.output_dim()]
     HW1_NN     = MODEL(network_struct=net_struct, learning_rate=0.1)
-    HW1_NN     = trainModel(20000, HW1_NN, train_x_part, train_y_part)    
+    HW1_NN     = trainModel(10, HW1_NN, train_x_part, train_y_part)
+    predict_ys = inference(HW1_NN, test_x_part)
+    temp = 0
+    for i in range(predict_ys.shape[1]):
+        temp = temp if isEqual(predict_ys[:, i], test_y_part[:, i]) else (temp+1)
+    print(temp/predict_ys.shape[1])
+    #printImage(train_x_part[:, 4096], train_y_part[:, 4096])
+    #aa = forwardPropagate(HW1_NN, train_x_part[:, 4095])[-1]['post_act']
+    #bb = FUNC.crossEntropy(aa, train_y_part[:, 4095])
     print("Total Exe. Seconds: %.2f"%(time.time()-start_time))
     
 
@@ -364,5 +392,5 @@ if __name__ == "__main__":
 # The # of nodes in the output layer is determined by the number of classes we have. => 10 classes 10 neurons 
 # Textbook P.139 : forward & backward function
 # `np_ay_1.dot(np_ay_2)` is equivalent to `numpy.dot(np_ay_1, np_ay_2)`
-#activations[layer_xx] i.e., FP_intermediates[layer_xx]['post_act']
-#zs[layer_xx] i.e., FP_intermediates[layer_xx]['pre_act']
+# activations[layer_xx] i.e., FP_intermediates[layer_xx]['post_act']
+# zs[layer_xx] i.e., FP_intermediates[layer_xx]['pre_act']
