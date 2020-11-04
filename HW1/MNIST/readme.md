@@ -3,6 +3,7 @@
 - Dependencies
     - Python standard: `math`, `os`, `pathlib`, `random`, `re`, `struct`, `sys`, `time`
     - `numpy` and `scipy`
+- If you get some error about `No such file or directory: 'xxxx.pickle'`, please run function `generatePkFromSource()`. After that step, you can disable it.
 - HOW TO execute the python script.
     1. Put the following files under **THE SAME DIRECTORY**.
         - `HW1_109062631.py`
