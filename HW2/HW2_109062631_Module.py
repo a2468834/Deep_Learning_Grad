@@ -13,7 +13,7 @@ import math
 import matplotlib.pyplot as pyplot
 import numpy
 import os
-import pandas
+#import pandas
 import pathlib
 import pickle
 import random
@@ -24,10 +24,13 @@ import torch
 import torch
 import torch.nn
 import torch.nn.functional
-#from   torch.utils.data import DataLoader
+from   torch import optim
+
+# For example
+from   torch.utils.data import DataLoader
 #from   torch.utils.data.sampler import SubsetRandomSampler
-#from   torchvision import transforms
-#from   torch import optim
+from   torchvision import datasets
+from   torchvision import transforms
 #import warnings
 
 
@@ -53,7 +56,7 @@ class FUNC:
         else:
             # Add tiny amount 1e-8 to avoid put zero into numpy.log()
             return (-1.0) * numpy.sum(truth_vec * numpy.log(predict_vec.T + 1e-8))
-
+'''
 # Convolutional AutoEncoder 
 class convAutoEncdr(torch.nn.Module):
     def __init__(self):
@@ -89,6 +92,37 @@ class convAutoEncdr(torch.nn.Module):
         x = self.fulconn(x)
         x = self.out(x)
         return x
+'''
+
+class ConvAutoencoder(torch.nn.Module):
+    def __init__(self):
+        super(ConvAutoencoder, self).__init__()
+       
+        #Encoder
+        self.conv1 = torch.nn.Conv2d(CONST.input_channel(), 16, 3)
+        self.conv2 = torch.nn.Conv2d(16, 4, 3)
+        self.pool  = torch.nn.MaxPool2d(2, 2)
+       
+        #Decoder
+        self.t_conv1 = torch.nn.ConvTranspose2d(4, 16, 2)
+        self.t_conv2 = torch.nn.ConvTranspose2d(16, CONST.input_channel(), 2)
+
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = torch.nn.ReLU(x)
+        x = self.pool(x)
+        
+        x = self.conv2(x)
+        x = torch.nn.ReLU(x)
+        x = self.pool(x)
+        
+        x = self.t_conv1(x)
+        x = torch.nn.ReLU(x)
+        
+        x = self.t_conv2(x)
+        x = torch.nn.sigmoid(x)
+        return x
 
 
 def readNPY():
@@ -108,3 +142,10 @@ def printImage(enable_print_y, data_x_part, data_y_part=None):
     pyplot.imshow(data_x_part.reshape(CONST.row_pixel(), CONST.col_pixel()), cmap=pyplot.cm.gray)
     if enable_print_y == True: pyplot.title("%s"%str(data_y_part))
     pyplot.show()
+
+
+def have_CUDA():
+    if torch.cuda.is_available():
+        return 'cuda:0'
+    else:
+        return 'cpu'
