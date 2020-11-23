@@ -9,120 +9,93 @@
 #   Environment: 
 #      Software: Python 3.8.5 on 64-bit Windows 10 Pro (2004)
 #      Hardware: Intel i7-10510U, 16GB DDR4 non-ECC ram, and no discrete GPU
+#from   imblearn.over_sampling import RandomOverSampler
+#import re
+#import sys
+#import time
+
+########## Packages ##########
 import math
 import matplotlib.pyplot as pyplot
 import numpy
 import os
-#import pandas
 import pathlib
 import pickle
 import random
-import re
-import sys
 import time
 import torch
-import torch
+from   torch import optim
 import torch.nn
 import torch.nn.functional
-from   torch import optim
-
-# For example
 from   torch.utils.data import DataLoader
-#from   torch.utils.data.sampler import SubsetRandomSampler
 from   torchvision import datasets
-from   torchvision import transforms
-#import warnings
 
 
-########## Classes ##########
+########## Program Constants ##########
 class CONST:
     # Define some constants
-    row_pixel      = lambda : 26
-    col_pixel      = lambda : 26
-    input_channel  = lambda : 3
-    output_class   = lambda : 9
-    pass
+    epoch_num     = lambda : 200
+    row_pixel     = lambda : 26
+    col_pixel     = lambda : 26
+    input_channel = lambda : 3
+    output_class  = lambda : 9
+    batch_size    = lambda : 32
+    learning_rate = lambda : 0.05
+    OS_number     = lambda : [314, 403, 108, 373, 107, 388, 330, 332, 1]
 
-class FUNC:
-    # Define some basic functions
-    dReLU = lambda x : (x > 0.0).astype(numpy.float)        # 1st Derivative of reLU w.r.t. 'x', i.e., unit step function
-    reLU  = lambda x : x * (x > 0.0)
-    
-    #C-E Loss = $-\sum{\mathrm{label}_i{\ }log_{e}(\mathrm{predict}_i)}$, where $i{\in}$ vector's index set
-    def crossEntropy(predict_vec, truth_vec):
-        if predict_vec.shape != truth_vec.shape:
-            print("Wrong dimension of predict vector and truth vector in cross entropy.")
-            exit()
-        else:
-            # Add tiny amount 1e-8 to avoid put zero into numpy.log()
-            return (-1.0) * numpy.sum(truth_vec * numpy.log(predict_vec.T + 1e-8))
-'''
-# Convolutional AutoEncoder 
+
+########## Convolutional AutoEncoder ##########
 class convAutoEncdr(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, input_channel=CONST.input_channel(), h_dim=13*13*4, z_dim=16):
         super(convAutoEncdr, self).__init__()
-        # Declaration each layer in convolutional autoencoder 
-        # input data : width x height x depth = 26 x 26 x 3
         
+        # input data : width x height x depth(i.e., channel) = 26 x 26 x 3
         # Encoder
-        self.conv1 = torch.nn.Sequential(
-                         torch.nn.Conv2d(in_channels=CONST.input_channel(), out_channels=10, kernel_size=5, stride=1), # output = 22x22x10
-                         torch.nn.ReLU(), # output = 22x22x10 (un-changed)
-                         torch.nn.MaxPool2d(kernel_size=2) # output = 11x11x10, stride=kernel_size
-                     )
-        self.conv2 = torch.nn.Sequential(
-                         torch.nn.Conv2d(in_channels=10, out_channels=5, kernel_size=5, stride=1), # output = 7x7x5
-                         torch.nn.ReLU(), # output = 7x7x5 (un-changed)
-                         torch.nn.MaxPool2d(kernel_size=3, stride=1) # output = 5x5x5, stride=kernel_size
-                     )
-        self.fulconn = torch.nn.Sequential(
-                           torch.nn.Linear(5 * 5 * 5, 20),
-                           torch.nn.ReLU()
+        self.encoder = torch.nn.Sequential(
+                           torch.nn.Conv2d(in_channels=input_channel, out_channels=16, kernel_size=3, padding=1),
+                           torch.nn.ReLU(),
+                           torch.nn.MaxPool2d(kernel_size=2),
+                           torch.nn.Conv2d(in_channels=16, out_channels=4, kernel_size=3, padding=1),
+                           torch.nn.ReLU(),
+                           torch.nn.MaxPool2d(kernel_size=1)
                        )
         
+        # Variational latent layer
+        self.fc_mu     = torch.nn.Linear(in_features=h_dim, out_features=z_dim)
+        self.fc_logvar = torch.nn.Linear(in_features=h_dim, out_features=z_dim)
+        self.fc_rev    = torch.nn.Linear(in_features=z_dim, out_features=h_dim)
+        
         # Decoder
-        
-        
-        self.output  = torch.nn.Linear(20, CONST.output_class())
+        self.decoder = torch.nn.Sequential(
+                           torch.nn.ConvTranspose2d(in_channels=4, out_channels=16, kernel_size=1, stride=1),
+                           torch.nn.ReLU(),
+                           torch.nn.ConvTranspose2d(in_channels=16, out_channels=input_channel, kernel_size=2, stride=2),
+                           torch.nn.Sigmoid()
+                       )
     
     def forward(self, x):
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = x.view(x.size(0), -1)
-        x = self.fulconn(x)
-        x = self.out(x)
-        return x
-'''
-
-class ConvAutoencoder(torch.nn.Module):
-    def __init__(self):
-        super(ConvAutoencoder, self).__init__()
-       
-        #Encoder
-        self.conv1 = torch.nn.Conv2d(CONST.input_channel(), 16, 3)
-        self.conv2 = torch.nn.Conv2d(16, 4, 3)
-        self.pool  = torch.nn.MaxPool2d(2, 2)
-       
-        #Decoder
-        self.t_conv1 = torch.nn.ConvTranspose2d(4, 16, 2)
-        self.t_conv2 = torch.nn.ConvTranspose2d(16, CONST.input_channel(), 2)
+        if self.training:
+            x = self.encoder(x)
+            x = self.decoder(x)
+            return x
+        else:
+            x = self.encoder(x)
+            x = x + randomNoise(x)
+            x = self.decoder(x)
+            return x
+    
+    def reParameterize(self, mu, logvar):
+        std = logvar.mul(0.5).exp_()
+        eps = torch.empty_like(std).normal_()
+        z = eps * std + mu
+        return z
 
 
-    def forward(self, x):
-        x = self.conv1(x)
-        x = torch.nn.ReLU(x)
-        x = self.pool(x)
-        
-        x = self.conv2(x)
-        x = torch.nn.ReLU(x)
-        x = self.pool(x)
-        
-        x = self.t_conv1(x)
-        x = torch.nn.ReLU(x)
-        
-        x = self.t_conv2(x)
-        x = torch.nn.sigmoid(x)
-        return x
+########## Functions ##########
+def lossFunc(x_recon, x):
+    BCE_loss = torch.nn.functional.binary_cross_entropy(x_recon, x)
+    
+    return BCE_loss
 
 
 def readNPY():
@@ -133,15 +106,59 @@ def readNPY():
     data_ndarray  = numpy.load(data_npy_path)
     label_ndarray = numpy.load(label_npy_path)
     
-    # Don't forget to convet numpy ndarray to torch tensor
-    return torch.from_numpy(data_ndarray), torch.from_numpy(label_ndarray)
+    # Change image channel ordering from (# of samples, col, row, CH) to (# of samples, CH, col, row)
+    data_ndarray = numpy.rollaxis(data_ndarray, 3, 1)
+    
+    return data_ndarray, label_ndarray
 
 
-def printImage(enable_print_y, data_x_part, data_y_part=None):
-    # Print data into a gray image
-    pyplot.imshow(data_x_part.reshape(CONST.row_pixel(), CONST.col_pixel()), cmap=pyplot.cm.gray)
-    if enable_print_y == True: pyplot.title("%s"%str(data_y_part))
-    pyplot.show()
+def ndarrayToList(data_ndarray, label_ndarray):
+    data_list  = [data_ndarray[index, :, :, :] for index in range(data_ndarray.shape[0])]
+    label_list = [label_ndarray[index, :] for index in range(label_ndarray.shape[0])]
+    
+    return data_list, label_list
+
+
+# Notice: 'CH' must be placed at the second dimension of ndarray/torsor.
+def printImage(data_to_print, is_ndarray=False, save_file_name=None):
+    if is_ndarray:
+        data_tensor = torch.Tensor(data_to_print)
+    else:
+        data_tensor = data_to_print
+    
+    img_tensor = torch.zeros([data_tensor.shape[1], data_tensor.shape[2]], dtype=torch.int8)
+    
+    for index1 in range(data_tensor.shape[1]):
+        for index2 in range(data_tensor.shape[2]):
+            img_tensor[index1, index2] = torch.argmax(data_tensor[:, index1, index2]).item()
+    
+    if save_file_name != None:
+        pyplot.imsave(save_file_name, img_tensor, cmap=pyplot.cm.Greens)
+    else:
+        pyplot.imshow(img_tensor, cmap=pyplot.cm.Greens)
+        pyplot.show()
+
+
+# Find max value from one of 3 channels and set it to 1, other channels set to 0
+def setMaxCHToOne(data_tensor):
+    result_tensor =torch.zeros(data_tensor.shape)
+    
+    for index1 in range(data_tensor.shape[1]):
+        for index2 in range(data_tensor.shape[2]):
+            if torch.argmax(data_tensor[:, index1, index2]).item() == 0:
+                result_tensor[0, index1, index2] = 1.0
+                result_tensor[1, index1, index2] = 0.0
+                result_tensor[2, index1, index2] = 0.0
+            elif torch.argmax(data_tensor[:, index1, index2]).item() == 1:
+                result_tensor[0, index1, index2] = 0.0
+                result_tensor[1, index1, index2] = 1.0
+                result_tensor[2, index1, index2] = 0.0
+            elif torch.argmax(data_tensor[:, index1, index2]).item() == 2:
+                result_tensor[0, index1, index2] = 0.0
+                result_tensor[1, index1, index2] = 0.0
+                result_tensor[2, index1, index2] = 1.0
+    
+    return result_tensor
 
 
 def have_CUDA():
@@ -149,3 +166,9 @@ def have_CUDA():
         return 'cuda:0'
     else:
         return 'cpu'
+
+
+def randomNoise(latent_tensor):
+    noise_tensor = torch.zeros(latent_tensor.size())
+    noise_tensor = torch.empty_like(latent_tensor).normal_()
+    return noise_tensor
