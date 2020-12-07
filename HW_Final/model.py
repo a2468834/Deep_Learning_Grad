@@ -28,22 +28,36 @@ import zlib
 
 ########## Classes ##########
 class CONST:
-    report_col = lambda : ['ID', '資料年度', '資料月份', '酪農場代號', 
-                           '乳牛編號', '父親牛精液編號', '母親乳牛編號', 
-                           '出生日期', '胎次', '泌乳天數', '乳量', 
-                           '最近分娩日期', '採樣日期', '月齡', '檢測日期', 
-                           '最後配種日期', '最後配種精液', '配種次數', 
-                           '前次分娩日期', '第一次配種日期', '第一次配種精液']
-    birth_col  = lambda : ['乳牛編號', '分娩日期', '乾乳日期', '犢牛編號1', 
-                           '犢牛編號2', '母牛體重', '登錄日期', '計算胎次', 
-                           '胎次', '分娩難易度', '犢牛體型', '犢牛性別', 
+    # ID means '鮮奶的ID'
+    report_col = lambda : ['ID', '資料年度', '資料月份', '酪農場代號', '乳牛編號', '父親牛精液編號', 
+                           '母親乳牛編號', '出生日期', '胎次', '泌乳天數', '乳量', '最近分娩日期', 
+                           '採樣日期', '月齡', '檢測日期', '最後配種日期', '最後配種精液', 
+                           '配種次數', '前次分娩日期', '第一次配種日期', '第一次配種精液']
+                           
+    birth_col  = lambda : ['乳牛編號', '分娩日期', '乾乳日期', '犢牛編號1', '犢牛編號2', '母牛體重', 
+                           '登錄日期', '計算胎次', '胎次', '分娩難易度', '犢牛體型', '犢牛性別', 
                            '酪農場代號']
-    breed_col  = lambda : ['乳牛編號', '配種日期', '配種精液', '登錄日期', 
-                           '孕檢', '配種方式', '精液種類', '酪農場代號']
-    spec_col   = lambda : ['乳牛編號', '狀況類別', '狀況代號', '狀況日期', 
-                           '備註', '登錄日期', '酪農場代號']
+    breed_col  = lambda : ['乳牛編號', '配種日期', '配種精液', '登錄日期', '孕檢', '配種方式', 
+                           '精液種類', '酪農場代號']
+    spec_col   = lambda : ['乳牛編號', '狀況類別', '狀況代號', '狀況日期', '備註', '登錄日期', 
+                           '酪農場代號']
     dupl_col   = lambda : ['乳牛編號', '胎次', '登錄日期', '酪農場代號']
     unix_time0 = lambda : datetime.datetime(1970, 1, 1)
+
+'''
+[Drop]
+report: 資料年度、資料月份、出生日期(被月齡取代)、採樣日期、檢測日期、前次分娩日期(被最近分娩日期取代)
+birth: 犢牛編號1/2、登錄日期、計算胎次
+breed: 登錄日期、孕檢
+spec: 登錄日期、備註
+
+[同隻乳牛相減轉間隔]
+report: 最近分娩日期、最後配種日期
+birth: 分娩日期、乾乳日期
+breed: 配種日期
+spec: 狀況日期
+'''
+
 
 
 ########## Functions ##########
@@ -114,29 +128,20 @@ if __name__ == '__main__':
     spec_df   = readCSV('./data/spec.csv')
     
     # Merge all DFs
-    combined_columns = CONST.report_col() + ['birth'] + ['breed'] + ['spec']
-    cow_id = 87121677
+    combined_dict = {}
+    all_cow_id = set(report_df['乳牛編號']).union(set(birth_df['乳牛編號']), set(breed_df['乳牛編號']), set(spec_df['乳牛編號']))
     
-    # (1) report_df
-    big_df = pandas.DataFrame(columns=combined_columns)
-    big_df = pandas.concat([big_df, report_df])
+    for cow_id in all_cow_id:
+        combined_dict[cow_id] = (report_df.loc[report_df['乳牛編號'] == cow_id], 
+                                 birth_df.loc[birth_df['乳牛編號'] == cow_id], 
+                                 breed_df.loc[breed_df['乳牛編號'] == cow_id],
+                                 spec_df.loc[spec_df['乳牛編號'] == cow_id])
     
-    print(report_df.loc[report_df['乳牛編號'] == cow_id])
-    print("#############################################")
-    print(birth_df.loc[birth_df['乳牛編號'] == cow_id])
-    print("#############################################")
-    print(breed_df.loc[breed_df['乳牛編號'] == cow_id])
-    print("#############################################")
-    print(spec_df.loc[spec_df['乳牛編號'] == cow_id])
-    
-
-        
-        
-    
-
-
-
+    with open('combined_dict.pk', 'wb') as f:
+        pickle.dump(combined_dict, f)
 
 ########## Other codes ##########
-# 37517
-#print(big_df.loc[big_df['乳牛編號'] == birth_df.loc[index, '乳牛編號']])
+'''
+combined_dict = {cow_id : (report_DataFrame, birth_DataFrame, breed_DataFrame, spec_DataFrame)}
+                           └─ the slice of report DataFrame to specific cow id
+'''
