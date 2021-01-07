@@ -1,0 +1,22 @@
+########## Other Notes ##########
+# The # of nodes in the input layer is determined by the dimensionality of training data. => input layer 784 neurons
+# The # of nodes in the output layer is determined by the number of classes we have. => 10 classes 10 neurons 
+# Textbook P.139 : forward & backward function
+# `np_ay_1.dot(np_ay_2)` is equivalent to `numpy.dot(np_ay_1, np_ay_2)`
+# activations[layer_xx] i.e., FP_intermediates[layer_xx]['post_act']
+# zs[layer_xx] i.e., FP_intermediates[layer_xx]['pre_act']
+# y_part label : 0 == Carambula, 1 == Lychee, 2 == Pear
+'''
+for i in range(5):
+    print(index := random.randint(0, test_x_part.shape[0]))
+    printImg(True, test_x_part[index, :, :], test_y_part[index])
+'''
+# train
+#       x_part (1470, 32, 32)
+#       y_part (1470, 3)
+# test
+#       x_part (498, 32, 32)
+#       y_part (498, 3)
+# 29*29*4 = 3364
+# 29*29*2 = 1682
+# network_struct = [1024, 3364, 1682, 841, 29, 3]

@@ -33,7 +33,6 @@ class CONST:
                            '母親乳牛編號', '出生日期', '胎次', '泌乳天數', '乳量', '最近分娩日期', 
                            '採樣日期', '月齡', '檢測日期', '最後配種日期', '最後配種精液', 
                            '配種次數', '前次分娩日期', '第一次配種日期', '第一次配種精液']
-                           
     birth_col  = lambda : ['乳牛編號', '分娩日期', '乾乳日期', '犢牛編號1', '犢牛編號2', '母牛體重', 
                            '登錄日期', '計算胎次', '胎次', '分娩難易度', '犢牛體型', '犢牛性別', 
                            '酪農場代號']
@@ -110,6 +109,7 @@ def str2UnixEpoch(date_str):
                                           minute=int(match.group('minute')))
         date_unix = int((date_datetime - CONST.unix_time0()).total_seconds())
     else:
+        print(date_str)
         date_unix = 0
     
     return date_unix
@@ -128,7 +128,7 @@ if __name__ == '__main__':
     spec_df   = readCSV('./data/spec.csv')
     
     # Merge all DFs
-    combined_dict = {}
+    combined_dict = {} # 4-tuple of dict
     all_cow_id = set(report_df['乳牛編號']).union(set(birth_df['乳牛編號']), set(breed_df['乳牛編號']), set(spec_df['乳牛編號']))
     
     for cow_id in all_cow_id:
@@ -137,6 +137,31 @@ if __name__ == '__main__':
                                  breed_df.loc[breed_df['乳牛編號'] == cow_id],
                                  spec_df.loc[spec_df['乳牛編號'] == cow_id])
     
+    # Drop all 'cow_id' which have empty report_DataFrame
+    delete_keys = []
+    for key in combined_dict.keys():
+        if combined_dict[key][0].empty:
+            delete_keys.append(key)
+    for key in delete_keys:
+        del combined_dict[key]
+    
+    
+    # Low quality codes
+    combined_df = report_df
+    # Add new columns
+    df_length = len(combined_df['乳牛編號'])
+    df_index  = combined_df.index
+    for col_name in (CONST.birth_col()+CONST.breed_col()+CONST.spec_col()):
+        combined_df.loc[:, col_name] = pandas.Series(numpy.zeros(df_length), index=df_index)
+    
+    for key in combined_dict.keys():
+        for birthday in combined_dict[key][1]['分娩日期']:
+            combined_df[combined_df['最近分娩日期'] == birthday][CONST.birth_col()] = combined_dict[key][1]
+    # Low quality codes
+    
+    print(combined_df['乳牛編號'==52612])
+    
+    
     with open('combined_dict.pk', 'wb') as f:
         pickle.dump(combined_dict, f)
 
@@ -144,4 +169,18 @@ if __name__ == '__main__':
 '''
 combined_dict = {cow_id : (report_DataFrame, birth_DataFrame, breed_DataFrame, spec_DataFrame)}
                            └─ the slice of report DataFrame to specific cow id
+'''
+'''
+sorted_key = list(combined_dict.keys())
+sorted_key.sort()
+for key, index in zip(sorted_key, range(len(sorted_key))):
+    print('乳牛編號: {}\n'.format(key))
+    print(combined_dict[key][0])
+    print()
+    print(combined_dict[key][1])
+    print()
+    print(combined_dict[key][2])
+    print()
+    print(combined_dict[key][3])
+    print("################################################################################")
 '''

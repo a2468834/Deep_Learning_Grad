@@ -1,0 +1,13 @@
+https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html#torch.nn.Conv2d
+https://www.google.com.tw/search?sxsrf=ALeKk03Ydvp4zy62WtRia2qg-VWnbqXt5w%3A1608331758312&source=hp&ei=7jHdX6OAEdLFmAXt6pXgCg&q=conv2d+from+scratch&oq=conv2d+from+&gs_lcp=CgZwc3ktYWIQAxgAMgUIABDLAToECCMQJzoICAAQsQMQgwE6BQgAELEDOgIIADoGCAAQBRAeOgYIABAIEB5Q5wZYqitgzzRoAHAAeACAATWIAYYEkgECMTKYAQCgAQGqAQdnd3Mtd2l6&sclient=psy-ab
+https://towardsdatascience.com/building-convolutional-neural-network-using-numpy-from-scratch-b30aac50e50a
+https://acharyaramkrishna.com.np/2020/06/05/convolutional-neural-networks-from-scratch-on-python/
+https://medium.com/@reachraktim/convolutions-from-scratch-conv2d-transpose-convolution-group-convolution-depth-wise-a917f334c59c
+https://www.kdnuggets.com/2018/04/building-convolutional-neural-network-numpy-scratch.html
+https://github.com/dreamgonfly/cnn-from-scratch/blob/master/cnn_from_scratch.ipynb
+https://github.com/Andrewhuang723/Neural-network-scratch/blob/main/Network.py
+https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html#torch.nn.Conv2d
+https://www.google.com.tw/search?sxsrf=ALeKk03Ydvp4zy62WtRia2qg-VWnbqXt5w%3A1608331758312&source=hp&ei=7jHdX6OAEdLFmAXt6pXgCg&q=conv2d+from+scratch&oq=conv2d+from+&gs_lcp=CgZwc3ktYWIQAxgAMgUIABDLAToECCMQJzoICAAQsQMQgwE6BQgAELEDOgIIADoGCAAQBRAeOgYIABAIEB5Q5wZYqitgzzRoAHAAeACAATWIAYYEkgECMTKYAQCgAQGqAQdnd3Mtd2l6&sclient=psy-ab
+https://towardsdatascience.com/building-convolutional-neural-network-using-numpy-from-scratch-b30aac50e50a
+https://acharyaramkrishna.com.np/2020/06/05/convolutional-neural-networks-from-scratch-on-python/
+https://victorzhou.com/blog/intro-to-cnns-part-2/
